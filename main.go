@@ -34,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"github.com/qinqon/kube-admission-webhook/pkg/certificate"
 
 	sriovnetworkv1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/k8snetworkplumbingwg/sriov-network-operator/controllers"
@@ -119,6 +120,13 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	manageWebhookCert := os.Getenv("MANAGE_WEBHOOK_CERT") == "true"
+	if manageWebhookCert {
+		setupCertManager(mgr, controllers.INJECTOR_WEBHOOK_NAME, certificate.MutatingWebhook, namespace)
+		setupCertManager(mgr, controllers.OPERATOR_WEBHOOK_NAME, certificate.MutatingWebhook, namespace)
+		setupCertManager(mgr, controllers.OPERATOR_WEBHOOK_NAME, certificate.ValidatingWebhook, namespace)
+	}
 
 	// Create a default SriovNetworkNodePolicy
 	err = createDefaultPolicy(ctrl.GetConfigOrDie())
@@ -213,4 +221,18 @@ func createDefaultOperatorConfig(cfg *rest.Config) error {
 		return err
 	}
 	return nil
+}
+
+func setupCertManager(mgr ctrl.Manager, webhookName string, webhookType certificate.WebhookType, namespace string) {
+	options := certificate.Options{
+		WebhookName: webhookName,
+		WebhookType: webhookType,
+		Namespace: namespace,
+	}
+	certManager, err := certificate.NewManager(mgr.GetClient(), options)
+	if err != nil {
+		setupLog.Error(err, "unable to create injector cert manager", "controllers", "SriovOperatorConfig")
+		os.Exit(1)
+	}
+	certManager.Add(mgr)
 }
